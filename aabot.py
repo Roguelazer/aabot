@@ -1,3 +1,4 @@
+import optparse
 import logging
 import re
 import socket
@@ -128,5 +129,13 @@ class IRCConn(object):
             self._write("PRIVMSG %s :%s" % (self.chan, line))
 
 if __name__ == '__main__':
-    c = IRCConn("#aabot")
+    p = optparse.OptionParser()
+    p.add_option("-s", "--server", dest="server", action="store", help="Host to connect to")
+    p.add_option("-p", "--port", dest="port", action="store", type="int", default=6697, help="Port to connect to (default %default)")
+    p.add_option("-c", "--channel", dest="channel", action="store", default="aabot", help="Channel to connect to (default #%default, # auto-added)")
+    p.add_option("--ssl", dest="use_ssl", action="store_true", default=False, help="Use SSL (default %default)")
+    p.add_option("--password", dest="password", action="store", default=None, help="Password (default %default)")
+    (opts, args) = p.parse_args()
+    c = IRCConn("#" + opts.channel)
+    c.connect(opts.server, opts.port, p.use_ssl, p.password)
     tornado.ioloop.IOLoop.instance().start()
