@@ -2,6 +2,7 @@ import functools
 import optparse
 import logging
 import re
+import signal
 import socket
 import ssl
 import sys
@@ -152,6 +153,12 @@ class IRCConn(object):
     def privmsg(self, user, message):
         self.chanmsg(user, message)
 
+    def quit(self, message, callback=None):
+        def after_quit(*args, **kwargs):
+            self.conn.close()
+            callback()
+        self._write("QUIT :%s" % message, callback=after_quit)
+
 class AABot(IRCConn):
     def __init__(self, channel, nickname, io_loop=None, listen_channels=[]):
         self.channel = channel
@@ -169,6 +176,8 @@ class AABot(IRCConn):
         def on_get(response):
             if response.error:
                 logging.error(response.error)
+            if not response.headers.get('Content-Type', "").startswith("image/"):
+                return
             screen = IRCScreen(width=60, height=30)
             image = Image.open(response.buffer).convert('L').resize(screen.virtual_size)
             stat = ImageStat.Stat(image)
@@ -177,17 +186,13 @@ class AABot(IRCConn):
             else:
                 invert = False
             screen.put_image((0,0), image)
-            self.chanmsg(self.channel, "Displaying %s" % response.request.url)
+            self.chanmsg(self.channel, "Displaying %s for %s" % (response.request.url, user))
             self.chanmsg(self.channel, screen.render(dithering_mode=aalib.DITHER_FLOYD_STEINBERG, inversion=invert))
-
-        def on_head(response):
-            if response.headers.get('Content-Type', "").startswith("image/"):
-                client.fetch(uri, on_get)
 
         umd = URI_RE.search(message)
         if umd:
             uri = umd.group(0)
-            head_request = tornado.httpclient.HTTPRequest(uri, method='HEAD')
+            client.fetch(uri, on_get)
             client.fetch(head_request, on_head)
 
     def on_privmsg(user, message):
@@ -205,4 +210,5 @@ if __name__ == '__main__':
     (opts, args) = p.parse_args()
     c = AABot(opts.channel, opts.nick, listen_channels=opts.listen_channels)
     c.connect(opts.server, opts.port, opts.use_ssl, opts.password)
+    signal.signal(signal.SIGINT, lambda: c.quit("Terminated by ASCII art", tornado.ioloop.IOLoop.instance().stop))
     tornado.ioloop.IOLoop.instance().start()
