@@ -1,3 +1,4 @@
+import functools
 import optparse
 import logging
 import re
@@ -7,6 +8,7 @@ import sys
 
 import aalib
 import Image
+import ImageStat
 
 import tornado.httpclient
 import tornado.ioloop
@@ -14,26 +16,14 @@ import tornado.iostream
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
-def fetch_as_aa(uri, cb, io_loop=None):
-    if not io_loop:
-        io_loop = tornado.ioloop.IOLoop.instance()
-    def after_fetch(response):
-        if response.error:
-            logging.error(response.error)
-        screen = aalib.AsciiScreen(width=80, height=40)
-        image = Image.open(response.buffer).convert('L').resize(screen.virtual_size)
-        screen.put_image((0,0), image)
-        cb(screen.render())
-    client = tornado.httpclient.AsyncHTTPClient(io_loop=io_loop)
-    client.fetch(uri, after_fetch)
-
 IRC_DISCONNECTED = 0
 IRC_NICK = 1
 IRC_CONNECTING = 2
 IRC_CONNECTED = 3
 
 PING_RE=re.compile('PING (?P<message>.+)')
-CHANMSG_RE=re.compile(':(?P<username>[^!]+)!(?P<who>[^ ]+) PRIVMSG (?P<chan>[^ ]+) :(?P<msg>.*)')
+CHANMSG_RE=re.compile(':(?P<username>[^!]+)!(?P<who>[^ ]+) PRIVMSG (?P<chan>#[^ ]+) :(?P<msg>.*)')
+PRIVMSG_RE=re.compile(':(?P<username>[^!]+)!(?P<who>[^ ]+) PRIVMSG (?P<user>[^#][^ ]*) :(?P<msg>.*)')
 
 # Ganked from
 # http://daringfireball.net/2010/07/improved_regex_for_matching_urls, thank
@@ -67,14 +57,38 @@ URI_RE=re.compile(r'''(?xi)
 )
 ''')
 
+class IRCScreen(aalib.AsciiScreen):
+    '''Screen that uses mIRC escape sequences.'''
+
+    _formats = {
+        aalib.ATTRIBUTE_NORMAL: '\x03%s',
+        aalib.ATTRIBUTE_BRIGHT: '\x03\x02%s\x02',
+        aalib.ATTRIBUTE_REVERSE: '\x030,1%s\x03',
+        aalib.ATTRIBUTE_DIM: '\x02%s\x02',
+    }
+
+    def _get_default_settings(self):
+        settings = aalib.Screen._get_default_settings(self)
+        settings.options = aalib.OPTION_NORMAL_MASK | aalib.OPTION_BRIGHT_MASK | aalib.OPTION_DIM_MASK
+        return settings
+
 class IRCConn(object):
-    def __init__(self, chan, io_loop=None):
-        self.chan = chan
+    def __init__(self, nickname, io_loop=None):
         if not io_loop:
             io_loop = tornado.ioloop.IOLoop.instance()
-        self._io_loop = io_loop
+        self.nickname = nickname
+        self.io_loop = io_loop
         self.conn = None
         self._state = IRC_DISCONNECTED
+
+    def on_connect(self):
+        pass
+
+    def on_chanmsg(self, channel, username, message):
+        pass
+
+    def on_privmsg(self, username, message):
+        pass
 
     def connect(self, host, port, do_ssl=False, password=None):
         sock = None
@@ -83,6 +97,7 @@ class IRCConn(object):
             try:
                 fd = socket.socket(family, socktype, proto)
                 fd.connect(sockaddr)
+                fd.setblocking(0)
                 sock = fd
                 break
             except socket.error:
@@ -91,9 +106,9 @@ class IRCConn(object):
             raise socket.error("Unable to connect to %s:%s" % (host, port))
         if do_ssl:
             sock = ssl.wrap_socket(sock, server_side=False, do_handshake_on_connect=False)
-            self.conn = tornado.iostream.SSLIOStream(sock, io_loop=self._io_loop)
+            self.conn = tornado.iostream.SSLIOStream(sock, io_loop=self.io_loop)
         else:
-            self.conn = tornado.iostream.IOStream(sock, io_loop=self._io_loop)
+            self.conn = tornado.iostream.IOStream(sock, io_loop=self.io_loop)
         self.conn.read_until("\n", self._handle_data)
 
     def _write(self, data, *args, **kwargs):
@@ -110,35 +125,79 @@ class IRCConn(object):
                 self._write("PASS %s" % self._password)
             self._state = IRC_NICK
         elif self._state == IRC_NICK:
-            self._write("NICK aabot")
-            self._write("USER  aabot 8 *  : AABOT")
+            self._write("NICK %s" % self.nickname)
+            self._write("USER %s 8 *  :The ASCII Art Bot" % self.nickname)
             self._state = IRC_CONNECTING
         elif self._state == IRC_CONNECTING:
-            self._write("JOIN " + self.chan)
+            self.on_connect()
             self._state = IRC_CONNECTED
         elif self._state == IRC_CONNECTED:
             cmd = CHANMSG_RE.match(data)
             if cmd:
-                message = cmd.group('msg')
-                umd = URI_RE.match(message)
-                if umd:
-                    uri = umd.group(0)
-                    if uri.lower().split(".")[-1] in ("jpg", "jpeg", "gif", "ico", "png", "tiff"):
-                        fetch_as_aa(uri, self._after_fetch, self._io_loop)
+                self.on_chanmsg(cmd.group('chan'), cmd.group('username'), cmd.group('msg'))
+            pmd = PRIVMSG_RE.match(data)
+            if pmd:
+                if pmd.group('user') == self.nickname:
+                    self.on_privmsg(pmd.group('username'), pmd.group('msg'))
         self.conn.read_until("\n", self._handle_data)
 
-    def _after_fetch(self, data):
-        for line in data.split("\n"):
-            self._write("PRIVMSG %s :%s" % (self.chan, line))
+    def join(self, channel):
+        self._write("JOIN " + channel)
+
+    def chanmsg(self, channel, message):
+        for line in message.split("\n"):
+            self._write("PRIVMSG %s :%s" % (channel, line))
+
+    def privmsg(self, user, message):
+        self.chanmsg(user, message)
+
+class AABot(IRCConn):
+    def __init__(self, channel, nickname, io_loop=None):
+        self.channel = channel
+        super(AABot, self).__init__(nickname, io_loop)
+
+    def on_connect(self):
+        self.join(self.channel)
+
+    def on_chanmsg(self, chan, user, message):
+        client = tornado.httpclient.AsyncHTTPClient(io_loop=self.io_loop)
+
+        def on_get(response):
+            if response.error:
+                logging.error(response.error)
+            screen = IRCScreen(width=40, height=20)
+            image = Image.open(response.buffer).convert('L').resize(screen.virtual_size)
+            stat = ImageStat.Stat(image)
+            if stat.rms[0] > 128.0:
+                invert = True
+            else:
+                invert = False
+            screen.put_image((0,0), image)
+            self.chanmsg(chan, "Displaying %s" % response.request.url)
+            self.chanmsg(chan, screen.render(dithering_mode=aalib.DITHER_FLOYD_STEINBERG, inversion=invert))
+
+        def on_head(response):
+            if response.headers.get('Content-Type', "").startswith("image/"):
+                client.fetch(uri, on_get)
+
+        umd = URI_RE.search(message)
+        if umd:
+            uri = umd.group(0)
+            head_request = tornado.httpclient.HTTPRequest(uri, method='HEAD')
+            client.fetch(head_request, on_head)
+
+    def on_privmsg(user, message):
+        self.on_chanmsg(user, user, message)
 
 if __name__ == '__main__':
     p = optparse.OptionParser()
     p.add_option("-s", "--server", dest="server", action="store", help="Host to connect to")
     p.add_option("-p", "--port", dest="port", action="store", type="int", default=6697, help="Port to connect to (default %default)")
     p.add_option("-c", "--channel", dest="channel", action="store", default="aabot", help="Channel to connect to (default #%default, # auto-added)")
+    p.add_option("-n", "--nick", dest="nick", action="store", default="aabot", help="nickname to use (default %default)")
     p.add_option("--ssl", dest="use_ssl", action="store_true", default=False, help="Use SSL (default %default)")
     p.add_option("--password", dest="password", action="store", default=None, help="Password (default %default)")
     (opts, args) = p.parse_args()
-    c = IRCConn("#" + opts.channel)
+    c = AABot("#" + opts.channel, opts.nick)
     c.connect(opts.server, opts.port, opts.use_ssl, opts.password)
     tornado.ioloop.IOLoop.instance().start()
