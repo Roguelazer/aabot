@@ -4,9 +4,9 @@ aabot
 **aabot** is an IRC bot that listens for URLs and, if they resolve to
 images, converts those images to ASCII art and writes it back to IRC.
 
-It was developed by [mailto:jbrown@yelp.com](James Brown). If you think
+It was developed by [James Brown](mailto:jbrown@yelp.com). If you think
 it's cool, maybe you want to 
-[http://www.yelp.com/careers?country=US](come work at Yelp). :-)
+[come work at yelp](http://www.yelp.com/careers?country=US). :-)
 
 Usage
 -----
@@ -14,11 +14,11 @@ Run `aabot --help` for a summary of options. In general, you will need
 to pass in at least a server host.
 
 To run, it will require the following:
- * [http://www.tornadoweb.org/](Tornado) 1.0 or higher
- * [http://jwilk.net/software/python-aalib](python-aalib) 0.2 or higher
+ * [Tornado](http://www.tornadoweb.org/) 1.0 or higher
+ * [python-aalib](http://jwilk.net/software/python-aalib) 0.2 or higher
 
-Rendering is done using [http://www.mirc.com/colors.html](mIRC color codes), which
-are also supported by [http://xchat.org/](XChat) and [http://www.irssi.org/](irssi).
+Rendering is done using [mIRC color codes](http://www.mirc.com/colors.html), which
+are also supported by [XChat](http://xchat.org/) and [irssi](http://www.irssi.org/).
 
 Contributing
 ------------
