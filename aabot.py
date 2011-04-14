@@ -35,6 +35,9 @@ IRC_CONNECTED = 3
 PING_RE=re.compile('PING (?P<message>.+)')
 CHANMSG_RE=re.compile(':(?P<username>[^!]+)!(?P<who>[^ ]+) PRIVMSG (?P<chan>[^ ]+) :(?P<msg>.*)')
 
+# Ganked from
+# http://daringfireball.net/2010/07/improved_regex_for_matching_urls, thank
+# you John Gruber
 URI_RE=re.compile(r'''(?xi)
 \b
 (                           # Capture 1: entire matched URL
@@ -137,5 +140,5 @@ if __name__ == '__main__':
     p.add_option("--password", dest="password", action="store", default=None, help="Password (default %default)")
     (opts, args) = p.parse_args()
     c = IRCConn("#" + opts.channel)
-    c.connect(opts.server, opts.port, p.use_ssl, p.password)
+    c.connect(opts.server, opts.port, opts.use_ssl, opts.password)
     tornado.ioloop.IOLoop.instance().start()
