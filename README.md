@@ -14,6 +14,7 @@ Run `aabot --help` for a summary of options. In general, you will need
 to pass in at least a server host.
 
 To run, it will require the following:
+
  * [Tornado](http://www.tornadoweb.org/) 1.0 or higher
  * [python-aalib](http://jwilk.net/software/python-aalib) 0.2 or higher
 
