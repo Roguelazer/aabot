@@ -210,5 +210,5 @@ if __name__ == '__main__':
     (opts, args) = p.parse_args()
     c = AABot(opts.channel, opts.nick, listen_channels=opts.listen_channels)
     c.connect(opts.server, opts.port, opts.use_ssl, opts.password)
-    signal.signal(signal.SIGINT, lambda: c.quit("Terminated by ASCII art", tornado.ioloop.IOLoop.instance().stop))
+    signal.signal(signal.SIGINT, lambda *args: c.quit("Terminated by ASCII art", tornado.ioloop.IOLoop.instance().stop))
     tornado.ioloop.IOLoop.instance().start()
