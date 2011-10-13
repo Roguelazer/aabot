@@ -115,7 +115,7 @@ if __name__ == '__main__':
     p = optparse.OptionParser()
     p.add_option("-s", "--server", dest="server", action="store", help="Host to connect to")
     p.add_option("-p", "--port", dest="port", action="store", type="int", default=6697, help="Port to connect to (default %default)")
-    p.add_option("-c", "--channel", dest="channel", action="store", default="aabot", help="Channel to connect to (default %default)")
+    p.add_option("-c", "--channel", dest="channel", action="store", default="#aabot", help="Channel to connect to (default %default)")
     p.add_option("-n", "--nick", dest="nick", action="store", default="aabot", help="nickname to use (default %default)")
     p.add_option("-l", "--listen-channel", dest="listen_channels", action="append", default=[], help="channels to listen on (default %default)")
     p.add_option("--ssl", dest="use_ssl", action="store_true", default=False, help="Use SSL (default %default)")
