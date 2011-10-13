@@ -3,8 +3,6 @@ import optparse
 import logging
 import re
 import signal
-import socket
-import ssl
 import sys
 
 import aalib
@@ -66,9 +64,10 @@ class IRCScreen(aalib.AsciiScreen):
 
 
 class AABot(IRCConn):
-    def __init__(self, channel, nickname, io_loop=None, listen_channels=[]):
+    def __init__(self, channel, nickname, max_image_length, io_loop=None, listen_channels=[]):
         self.channel = channel
         self.listen_channels = listen_channels
+        self.max_image_length = max_image_length
         super(AABot, self).__init__(nickname, io_loop)
 
     def on_connect(self):
@@ -82,8 +81,6 @@ class AABot(IRCConn):
         def on_get(response):
             if response.error:
                 logging.error(response.error)
-            if not response.headers.get('Content-Type', "").startswith("image/"):
-                return
             screen = IRCScreen(width=60, height=30)
             image = Image.open(response.buffer).convert('L').resize(screen.virtual_size)
             stat = ImageStat.Stat(image)
@@ -95,13 +92,23 @@ class AABot(IRCConn):
             self.chanmsg(self.channel, "Displaying %s for %s" % (response.request.url, user))
             self.chanmsg(self.channel, screen.render(dithering_mode=aalib.DITHER_FLOYD_STEINBERG, inversion=invert))
 
+        def on_head(uri, response):
+            if response.error:
+                logging.error(response.error)
+                return
+            if not response.headers.get('Content-Type', "").startswith("image/"):
+                return
+            if int(response.headers.get('Content-Length', 0)) > self.max_image_length:
+                return
+            client.fetch(uri, on_get)
+
         umd = URI_RE.search(message)
         if umd:
             uri = umd.group(0)
-            client.fetch(uri, on_get)
-            client.fetch(head_request, on_head)
+            head_request = tornado.httpclient.HTTPRequest(uri, method="HEAD")
+            client.fetch(head_request, functools.partial(on_head, uri))
 
-    def on_privmsg(user, message):
+    def on_privmsg(self, user, message):
         self.on_chanmsg(user, user, message)
 
 if __name__ == '__main__':
@@ -114,12 +121,13 @@ if __name__ == '__main__':
     p.add_option("--ssl", dest="use_ssl", action="store_true", default=False, help="Use SSL (default %default)")
     p.add_option("--password", dest="password", action="store", default=None, help="Password (default %default)")
     p.add_option("-v", "--verbose", dest="verbose", action="store_true", help="Be more verbose")
+    p.add_option("--max-image-length", dest="max_image_length", action="store", type="int", default=2097152, help="Max size of images to fetch (default %default bytes)")
     (opts, args) = p.parse_args()
     if opts.verbose:
         logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
     else:
         logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    c = AABot(opts.channel, opts.nick, listen_channels=opts.listen_channels)
+    c = AABot(opts.channel, opts.nick, opts.max_image_length, listen_channels=opts.listen_channels)
     c.connect(opts.server, opts.port, opts.use_ssl, opts.password)
     signal.signal(signal.SIGINT, lambda *args: c.quit("Terminated by ASCII art", tornado.ioloop.IOLoop.instance().stop))
     tornado.ioloop.IOLoop.instance().start()
