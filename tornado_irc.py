@@ -14,6 +14,7 @@ IRC_CONNECTED = 3
 PING_RE=re.compile('PING (?P<message>.+)')
 CHANMSG_RE=re.compile(':(?P<username>[^!]+)!(?P<who>[^ ]+) PRIVMSG (?P<chan>#[^ ]+) :(?P<msg>.*)')
 PRIVMSG_RE=re.compile(':(?P<username>[^!]+)!(?P<who>[^ ]+) PRIVMSG (?P<user>[^#][^ ]*) :(?P<msg>.*)')
+ERROR_RE=re.compile('ERROR :(?P<msg>.*)')
 
 class IRCConn(object):
     def __init__(self, nickname, io_loop=None):
@@ -35,6 +36,7 @@ class IRCConn(object):
 
     def connect(self, host, port, do_ssl=False, password=None):
         sock = None
+        self._last_connection = (host, port, do_ssl, password)
         self._password = password
         for (family, socktype, proto, canonname, sockaddr) in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, 0):
             try:
@@ -82,9 +84,17 @@ class IRCConn(object):
             if pmd:
                 if pmd.group('user') == self.nickname:
                     self.on_privmsg(pmd.group('username'), pmd.group('msg'))
+            emd = ERROR_RE.match(data)
+            if emd:
+                if "Closing Link" in emd.group('msg'):
+                    self.conn.close()
+                    self.connect(*self._last_connection)
+                    return
         self.conn.read_until("\n", self._handle_data)
 
     def join(self, channel):
+        if not channel.startswith('#'):
+            channel = "#" + channel
         self._write("JOIN " + channel)
 
     def chanmsg(self, channel, message):
@@ -97,5 +107,6 @@ class IRCConn(object):
     def quit(self, message, callback=None):
         def after_quit(*args, **kwargs):
             self.conn.close()
-            callback()
+            if callback:
+                callback()
         self._write("QUIT :%s" % message, callback=after_quit)
